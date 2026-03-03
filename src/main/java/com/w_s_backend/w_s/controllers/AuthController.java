@@ -23,9 +23,4 @@ public class AuthController {
         return ResponseEntity.ok(createdUser);
     }
 
-    @GetMapping
-    public String registerForm(Model model) {
-        model.addAttribute("registrationDTO", new UserRegistrationDTO());
-        return "registration";
-    }
 }
