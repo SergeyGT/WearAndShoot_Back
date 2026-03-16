@@ -53,11 +53,16 @@ public class ClothCardService {
         return clothCard;
     }
 
+    public ClothCard getCardById(Long cardId) {
+    return _clothCardPepository.findById(cardId)
+        .orElseThrow(() -> new RuntimeException("Card not found"));
+}
+
     public ClothCard updateCard(Long cartID, ClothCardDTO clothCardDTO, MultipartFile image){
         ClothCard clothCard = _clothCardPepository.findById(cartID)
                                 .orElseThrow(() -> new RuntimeException("Card not found"));
 
-        if(!clothCard.getUser().equals(clothCardDTO.getUserId())){
+        if(!clothCard.getUser().getId().equals(clothCardDTO.getUserId())){
             throw new RuntimeException("You can only update your own cards");
         }
 
