@@ -19,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+
 
 
 
@@ -28,11 +30,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 @RequestMapping("/cloth")
 public class CardClothsController {
     @Autowired
-    private final ClothCardService clothCardService;
-
+    private  ClothCardService clothCardService;
     
-    @PostMapping
-    public ResponseEntity<ClothCardResponseDTO> postMethodName(
+    @PostMapping("/create")
+    public ResponseEntity<ClothCardResponseDTO> createCard(
             @RequestPart("clothData") ClothCardDTO clothCardDTO,
             @RequestPart("image") MultipartFile image) 
     {
@@ -46,8 +47,22 @@ public class CardClothsController {
     
 
     @GetMapping("/userCards/{id}")
-    public List<ClothCard> read(@PathVariable("id") Long id) {
+    public List<ClothCard> read(@PathVariable Long id) {
         return clothCardService.readAllCards(id);
+    }
+
+    @PutMapping("/edit/{cardId}")
+    public ResponseEntity<ClothCardResponseDTO> editCard(
+        @PathVariable Long cardId,
+        @RequestPart("clothData") ClothCardDTO clothCardDTO,
+        @RequestPart("image") MultipartFile image) 
+    {
+        
+        ClothCard createCard = clothCardService.updateCard(cardId, clothCardDTO, image);
+        
+        ClothCardResponseDTO clothCardResponseDTO = new ClothCardResponseDTO(
+            createCard.getId());
+        return ResponseEntity.ok(clothCardResponseDTO);
     }
     
 }

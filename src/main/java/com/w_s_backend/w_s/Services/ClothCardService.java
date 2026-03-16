@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -16,9 +17,11 @@ import com.w_s_backend.w_s.models.ClothCard;
 import com.w_s_backend.w_s.models.User;
 
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @AllArgsConstructor
+@Slf4j
 public class ClothCardService {
     private final ClothCardPepository _clothCardPepository;
     private final UserService _userService;
@@ -50,10 +53,44 @@ public class ClothCardService {
         return clothCard;
     }
 
+    public ClothCard updateCard(Long cartID, ClothCardDTO clothCardDTO, MultipartFile image){
+        ClothCard clothCard = _clothCardPepository.findById(cartID)
+                                .orElseThrow(() -> new RuntimeException("Card not found"));
+
+        if(!clothCard.getUser().equals(clothCardDTO.getUserId())){
+            throw new RuntimeException("You can only update your own cards");
+        }
+
+        clothCard.setCategory(clothCardDTO.getCategory());
+        clothCard.setClothName(clothCardDTO.getClothName());
+        clothCard.setColor(clothCardDTO.getColor());
+        clothCard.setSeason(clothCardDTO.getSeason());
+        clothCard.setWarmthLevel(clothCardDTO.getWarmthLevel());
+
+        if(image != null && !image.isEmpty()){
+            String oldPath = clothCard.getImagePath();
+            String newPath = SaveImage(image, clothCard.getUser().getId());
+            clothCard.setImagePath(newPath);
+
+            if(!oldPath.isEmpty()){
+                deleteImagePath(oldPath);
+            }
+        }
+
+        return _clothCardPepository.save(clothCard);
+    }
+
     public List<ClothCard> readAllCards(Long id){
         return _clothCardPepository.findByUserId(id);
     }
 
+    public void deleteImagePath(String path){
+        try{
+            Files.deleteIfExists(Paths.get(path));
+        } catch(IOException ex){
+            log.warn("Failed to delete old image: {}", path, ex);
+        }
+    }
 
      private String SaveImage(MultipartFile image, Long userId){
         if (image == null || image.isEmpty()) {
