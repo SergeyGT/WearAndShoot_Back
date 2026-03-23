@@ -37,6 +37,10 @@ public class ClothCard {
     private ClothingCategory category; 
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "style")
+    private ClothStyle style;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "season")
     private Season season;
 
