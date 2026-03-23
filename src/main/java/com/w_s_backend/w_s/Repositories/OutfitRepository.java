@@ -9,5 +9,5 @@ import com.w_s_backend.w_s.models.Outfit;
 
 @Repository
 public interface OutfitRepository extends JpaRepository<Outfit, Long>{
-    List<Outfit> findByUserIdOrderByCreatedAtDesc(Long userId);
+    List<Outfit> findByUserId(Long userId);
 }
