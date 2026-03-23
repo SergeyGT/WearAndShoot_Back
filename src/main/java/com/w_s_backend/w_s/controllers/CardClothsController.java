@@ -61,46 +61,46 @@ public class CardClothsController {
     }
     
     @PostMapping("/generate-outfits")
-    public ResponseEntity<List<OutfitResponse>> generateOutfits(
-            @RequestBody OutfitGenerateRequest request,
-            @AuthenticationPrincipal User user) {
-
-        if (user == null) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }        
+public ResponseEntity<List<OutfitResponse>> generateOutfits(
+        @RequestBody OutfitGenerateRequest request) {
     
-        Long userId = user.getId();
-
-        List<Outfit> outfits = clothCardService.generateAndSaveOutfits(
-            userId,
-            request.getStyle(),
-            request.getCount()
-        );
-
-        List<OutfitResponse> responses = outfits.stream().map(o -> {
-            OutfitResponse resp = new OutfitResponse();
-            resp.setId(o.getId());
-            resp.setOutfitName(o.getOutfitName());
-            resp.setStyle(o.getStyle());
-            resp.setTemperatureC(o.getTemperatureC());
-            resp.setWeatherCondition(o.getWeatherCondition());
-
-            List<OutfitResponse.ClothCardShortDto> items = o.getItems().stream()
-                .map(c -> {
-                    OutfitResponse.ClothCardShortDto dto = new OutfitResponse.ClothCardShortDto();
-                    dto.setId(c.getId());
-                    dto.setClothName(c.getClothName());
-                    dto.setImagePath(c.getImagePath());
-                    dto.setCategory(c.getCategory());
-                    return dto;
-                }).collect(Collectors.toList());
-
-            resp.setItems(items);
-            return resp;
-        }).collect(Collectors.toList());
-
-        return ResponseEntity.ok(responses);
+    // Убираем проверку user и получаем userId из запроса
+    Long userId = request.getUserId(); // Добавьте userId в OutfitGenerateRequest
+    
+    if (userId == null) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
     }
+    
+    List<Outfit> outfits = clothCardService.generateAndSaveOutfits(
+        userId,
+        request.getStyle(),
+        request.getCount()
+    );
+    
+    List<OutfitResponse> responses = outfits.stream().map(o -> {
+        OutfitResponse resp = new OutfitResponse();
+        resp.setId(o.getId());
+        resp.setOutfitName(o.getOutfitName());
+        resp.setStyle(o.getStyle());
+        resp.setTemperatureC(o.getTemperatureC());
+        resp.setWeatherCondition(o.getWeatherCondition());
+        
+        List<OutfitResponse.ClothCardShortDto> items = o.getItems().stream()
+            .map(c -> {
+                OutfitResponse.ClothCardShortDto dto = new OutfitResponse.ClothCardShortDto();
+                dto.setId(c.getId());
+                dto.setClothName(c.getClothName());
+                dto.setImagePath(c.getImagePath());
+                dto.setCategory(c.getCategory());
+                return dto;
+            }).collect(Collectors.toList());
+        
+        resp.setItems(items);
+        return resp;
+    }).collect(Collectors.toList());
+    
+    return ResponseEntity.ok(responses);
+}
 
     @GetMapping("/userCards/{id}")
     public List<ClothCard> read(@PathVariable Long id) {

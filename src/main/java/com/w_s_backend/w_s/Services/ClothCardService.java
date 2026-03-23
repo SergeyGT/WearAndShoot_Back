@@ -5,9 +5,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -38,11 +40,9 @@ public class ClothCardService {
     private final OutfitRepository outfitRepository;
     private final WeatherService weatherService;
 
-    // @Value("${file.upload-dir}")
-    // private String UPLOAD_DIR;
     private final String UPLOAD_DIR = "uploads/images/";
 
-    public ClothCard createCard(ClothCardDTO  clothCardDTO, MultipartFile image){
+    public ClothCard createCard(ClothCardDTO clothCardDTO, MultipartFile image){
         if(clothCardDTO.getClothName().isEmpty()) {
             //throw new ApiRequestException("Empty or Null Request data!");
         }
@@ -67,9 +67,9 @@ public class ClothCardService {
     }
 
     public ClothCard getCardById(Long cardId) {
-    return _clothCardPepository.findById(cardId)
-        .orElseThrow(() -> new RuntimeException("Card not found"));
-}
+        return _clothCardPepository.findById(cardId)
+            .orElseThrow(() -> new RuntimeException("Card not found"));
+    }
 
     public ClothCard updateCard(Long cartID, ClothCardDTO clothCardDTO, MultipartFile image){
         ClothCard clothCard = _clothCardPepository.findById(cartID)
@@ -91,7 +91,7 @@ public class ClothCardService {
             String newPath = SaveImage(image, clothCard.getUser().getId());
             clothCard.setImagePath(newPath);
 
-            if(!oldPath.isEmpty()){
+            if(oldPath != null && !oldPath.isEmpty()){
                 deleteImagePath(oldPath);
             }
         }
@@ -111,7 +111,7 @@ public class ClothCardService {
         }
     }
 
-     private String SaveImage(MultipartFile image, Long userId){
+    private String SaveImage(MultipartFile image, Long userId){
         if (image == null || image.isEmpty()) {
             return "";
         }
@@ -137,13 +137,14 @@ public class ClothCardService {
             return userUploadDir + fileName;
             
         } catch (IOException e) {
+            log.error("Error saving image", e);
             return "";
         }
     }
 
     @Transactional
     public List<Outfit> generateAndSaveOutfits(Long userId, OutfitStyle style, int count) {
-        if (count < 1 || count > 10) count = 1; // ограничим разумно
+        if (count < 1 || count > 10) count = 1;
 
         User user = _userService.findById(userId);
         List<ClothCard> allCards = _clothCardPepository.findByUserId(userId);
@@ -154,10 +155,10 @@ public class ClothCardService {
 
         List<Outfit> outfits = new ArrayList<>();
 
-        String city = weatherService.getCurrentWeather("Moscow").getLocation().getCountry();
+        // Получаем погоду для Москвы
         CurrentWeatherDto weather = null;
         try {
-            weather = weatherService.getCurrentWeather(city);
+            weather = weatherService.getCurrentWeather("Moscow");
         } catch (Exception e) {
             log.warn("Не удалось получить погоду, используем дефолт", e);
         }
@@ -183,22 +184,38 @@ public class ClothCardService {
             int index
     ) {
         List<ClothCard> selected = new ArrayList<>();
+        Set<Long> usedCardIds = new HashSet<>();
 
-        // Логика подбора в зависимости от стиля и погоды
+        // Получаем необходимые категории
         ClothingCategory[] required = getRequiredCategories(style, temp);
 
         for (ClothingCategory cat : required) {
-            // Фильтруем подходящие вещи по категории и стилю
+            // Фильтруем подходящие вещи по категории, стилю и погоде
             List<ClothCard> candidates = allCards.stream()
                 .filter(c -> c.getCategory() == cat)
+                .filter(c -> !usedCardIds.contains(c.getId()))
                 .filter(c -> matchesStyle(c, style))
                 .filter(c -> matchesWeather(c, temp))
                 .collect(Collectors.toList());
 
             if (!candidates.isEmpty()) {
-                // Выбираем случайную или самую подходящую
                 ClothCard chosen = candidates.get(new Random().nextInt(candidates.size()));
                 selected.add(chosen);
+                usedCardIds.add(chosen.getId());
+            } else {
+                log.warn("Не найдена подходящая вещь для категории: {}", cat);
+            }
+        }
+
+        // Если не удалось собрать образ (менее 3 вещей), создаем из доступных
+        if (selected.size() < 3) {
+            log.warn("Недостаточно вещей для полного образа, собрано только: {}", selected.size());
+            // Добавляем любые доступные вещи, чтобы не было пустого образа
+            for (ClothCard card : allCards) {
+                if (!usedCardIds.contains(card.getId()) && selected.size() < 5) {
+                    selected.add(card);
+                    usedCardIds.add(card.getId());
+                }
             }
         }
 
@@ -211,30 +228,36 @@ public class ClothCardService {
             .items(selected)
             .build();
     }
+
     private ClothingCategory[] getRequiredCategories(OutfitStyle style, double temp) {
         List<ClothingCategory> required = new ArrayList<>();
 
-        required.add(ClothingCategory.TOP_BASE);   
-        required.add(ClothingCategory.BOTTOM);    
-        required.add(ClothingCategory.SHOES);      
+        // Базовые категории (всегда нужны)
+        required.add(ClothingCategory.TOP_BASE);   // базовый слой
+        required.add(ClothingCategory.BOTTOM);     // низ
+        required.add(ClothingCategory.SHOES);      // обувь
 
-        if (temp <= 15 || style == OutfitStyle.STREETWEAR || style == OutfitStyle.WINTER_CASUAL) {
-            required.add(ClothingCategory.HEAD);
-        }
-
-        if (temp <= 18 || style == OutfitStyle.BUSINESS_CASUAL || style == OutfitStyle.OFFICE_FORMAL) {
+        // Добавляем средний слой при прохладной погоде
+        if (temp <= 15 || style == OutfitStyle.BUSINESS_CASUAL || style == OutfitStyle.OFFICE_FORMAL) {
             required.add(ClothingCategory.TOP_MID);
         }
 
+        // Добавляем верхнюю одежду при холодной погоде
         if (temp <= 10 || style == OutfitStyle.WINTER_CASUAL) {
             required.add(ClothingCategory.TOP_OUTER);
         }
 
-        if (style == OutfitStyle.ELEGANT || style == OutfitStyle.BUSINESS_CASUAL ||
-            (temp <= 5 && style == OutfitStyle.WINTER_CASUAL)) {
+        // Добавляем головной убор при холодной погоде
+        if (temp <= 5 || style == OutfitStyle.WINTER_CASUAL || style == OutfitStyle.STREETWEAR) {
+            required.add(ClothingCategory.HEAD);
+        }
+
+        // Добавляем аксессуары для элегантных стилей
+        if (style == OutfitStyle.ELEGANT || style == OutfitStyle.BUSINESS_CASUAL) {
             required.add(ClothingCategory.ACCESSORY);
         }
 
+        // Если очень жарко, убираем лишние слои
         if (temp > 25) {
             required.remove(ClothingCategory.TOP_MID);
             required.remove(ClothingCategory.TOP_OUTER);
@@ -245,39 +268,50 @@ public class ClothCardService {
     }
 
     private boolean matchesStyle(ClothCard card, OutfitStyle outfitStyle) {
-        if (card.getStyle() == null) return true; 
+        if (card.getStyle() == null) return true;
 
-    return switch (outfitStyle) {
-        case BUSINESS_CASUAL, OFFICE_FORMAL, ELEGANT -> 
-            card.getStyle() == ClothStyle.BUSINESS || card.getStyle() == ClothStyle.CASUAL;
-        
-        case SMART_CASUAL, CASUAL, STREETWEAR -> 
-            card.getStyle() == ClothStyle.CASUAL || card.getStyle() == ClothStyle.SPORT;
-        
-        case SPORTY -> 
-            card.getStyle() == ClothStyle.SPORT;
-        
-        case WINTER_CASUAL, SUMMER_VACATION -> 
-            true; 
-        
-        default -> true;
-    };
+        return switch (outfitStyle) {
+            case BUSINESS_CASUAL, OFFICE_FORMAL, ELEGANT -> 
+                card.getStyle() == ClothStyle.BUSINESS || card.getStyle() == ClothStyle.CASUAL;
+            
+            case SMART_CASUAL, CASUAL, STREETWEAR -> 
+                card.getStyle() == ClothStyle.CASUAL || card.getStyle() == ClothStyle.SPORT;
+            
+            case SPORTY -> 
+                card.getStyle() == ClothStyle.SPORT;
+            
+            case WINTER_CASUAL, SUMMER_VACATION -> 
+                true;
+            
+            default -> true;
+        };
     }
 
     private boolean matchesWeather(ClothCard card, double temp) {
-        if (card.getWarmthLevel() == null) return true; 
+        if (card.getWarmthLevel() == null) return true;
 
         int warmth = card.getWarmthLevel();
 
-        // Базовая логика по температуре
+        // Логика подбора по теплоте
         boolean tempMatch = switch (warmth) {
-            case 1 -> temp > 20;                    
-            case 2 -> temp >= 15 && temp <= 25;
-            case 3 -> temp >= 5  && temp <= 20;
-            case 4 -> temp >= -5 && temp <= 10;
-            case 5 -> temp <= 5;                   
+            case 1 -> temp >= 20;                    // очень легкая
+            case 2 -> temp >= 15 && temp <= 30;      // легкая
+            case 3 -> temp >= 5 && temp <= 25;       // средняя
+            case 4 -> temp >= -5 && temp <= 15;      // теплая
+            case 5 -> temp <= 10;                    // очень теплая
             default -> true;
         };
+
+        // Проверка по сезону
+        if (card.getSeason() != null) {
+            boolean seasonMatch = switch (card.getSeason()) {
+                case SUMMER -> temp > 15;
+                case SPRING, AUTUMN -> temp >= 0 && temp <= 20;
+                case WINTER -> temp < 10;
+                default -> true;
+            };
+            return tempMatch && seasonMatch;
+        }
 
         return tempMatch;
     }
