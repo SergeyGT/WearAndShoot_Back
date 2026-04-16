@@ -155,7 +155,6 @@ public class ClothCardService {
 
         List<Outfit> outfits = new ArrayList<>();
 
-        // Получаем погоду для Москвы
         CurrentWeatherDto weather = null;
         try {
             weather = weatherService.getCurrentWeather("Moscow");
@@ -186,11 +185,9 @@ public class ClothCardService {
         List<ClothCard> selected = new ArrayList<>();
         Set<Long> usedCardIds = new HashSet<>();
 
-        // Получаем необходимые категории
         ClothingCategory[] required = getRequiredCategories(style, temp);
 
         for (ClothingCategory cat : required) {
-            // Фильтруем подходящие вещи по категории, стилю и погоде
             List<ClothCard> candidates = allCards.stream()
                 .filter(c -> c.getCategory() == cat)
                 .filter(c -> !usedCardIds.contains(c.getId()))
@@ -207,10 +204,8 @@ public class ClothCardService {
             }
         }
 
-        // Если не удалось собрать образ (менее 3 вещей), создаем из доступных
         if (selected.size() < 3) {
             log.warn("Недостаточно вещей для полного образа, собрано только: {}", selected.size());
-            // Добавляем любые доступные вещи, чтобы не было пустого образа
             for (ClothCard card : allCards) {
                 if (!usedCardIds.contains(card.getId()) && selected.size() < 5) {
                     selected.add(card);
@@ -232,32 +227,25 @@ public class ClothCardService {
     private ClothingCategory[] getRequiredCategories(OutfitStyle style, double temp) {
         List<ClothingCategory> required = new ArrayList<>();
 
-        // Базовые категории (всегда нужны)
-        required.add(ClothingCategory.TOP_BASE);   // базовый слой
-        required.add(ClothingCategory.BOTTOM);     // низ
-        required.add(ClothingCategory.SHOES);      // обувь
+        required.add(ClothingCategory.TOP_BASE);   
+        required.add(ClothingCategory.BOTTOM);     
+        required.add(ClothingCategory.SHOES);      
 
-        // Добавляем средний слой при прохладной погоде
         if (temp <= 15 || style == OutfitStyle.BUSINESS_CASUAL || style == OutfitStyle.OFFICE_FORMAL) {
             required.add(ClothingCategory.TOP_MID);
         }
 
-        // Добавляем верхнюю одежду при холодной погоде
         if (temp <= 10 || style == OutfitStyle.WINTER_CASUAL) {
             required.add(ClothingCategory.TOP_OUTER);
         }
 
-        // Добавляем головной убор при холодной погоде
         if (temp <= 5 || style == OutfitStyle.WINTER_CASUAL || style == OutfitStyle.STREETWEAR) {
             required.add(ClothingCategory.HEAD);
         }
 
-        // Добавляем аксессуары для элегантных стилей
         if (style == OutfitStyle.ELEGANT || style == OutfitStyle.BUSINESS_CASUAL) {
             required.add(ClothingCategory.ACCESSORY);
         }
-
-        // Если очень жарко, убираем лишние слои
         if (temp > 25) {
             required.remove(ClothingCategory.TOP_MID);
             required.remove(ClothingCategory.TOP_OUTER);
@@ -294,11 +282,11 @@ public class ClothCardService {
 
         // Логика подбора по теплоте
         boolean tempMatch = switch (warmth) {
-            case 1 -> temp >= 20;                    // очень легкая
-            case 2 -> temp >= 15 && temp <= 30;      // легкая
-            case 3 -> temp >= 5 && temp <= 25;       // средняя
-            case 4 -> temp >= -5 && temp <= 15;      // теплая
-            case 5 -> temp <= 10;                    // очень теплая
+            case 1 -> temp >= 20;                    
+            case 2 -> temp >= 15 && temp <= 30;     
+            case 3 -> temp >= 5 && temp <= 25;       
+            case 4 -> temp >= -5 && temp <= 15;     
+            case 5 -> temp <= 10;                    
             default -> true;
         };
 
