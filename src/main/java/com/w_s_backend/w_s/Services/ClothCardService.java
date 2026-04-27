@@ -5,8 +5,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -144,93 +147,267 @@ public class ClothCardService {
 
     @Transactional
     public List<Outfit> generateAndSaveOutfits(Long userId, OutfitStyle style, int count) {
-        if (count < 1 || count > 10) count = 1;
-
         User user = _userService.findById(userId);
-        List<ClothCard> allCards = _clothCardPepository.findByUserId(userId);
+    List<ClothCard> allCards = _clothCardPepository.findByUserId(userId);
 
-        if (allCards.isEmpty()) {
-            throw new IllegalStateException("У пользователя нет вещей для генерации образов");
-        }
-
-        List<Outfit> outfits = new ArrayList<>();
-
-        CurrentWeatherDto weather = null;
-        try {
-            weather = weatherService.getCurrentWeather("Moscow");
-        } catch (Exception e) {
-            log.warn("Не удалось получить погоду, используем дефолт", e);
-        }
-
-        double temp = weather != null ? weather.getCurrent().getTemp_c() : 10.0;
-        String condition = weather != null ? weather.getCurrent().getCondition().getText() : "Облачно";
-
-        for (int i = 1; i <= count; i++) {
-            Outfit outfit = generateSingleOutfit(user, allCards, style, temp, condition, i);
-            outfitRepository.save(outfit);
-            outfits.add(outfit);
-        }
-
-        return outfits;
+    if (allCards.isEmpty()) {
+        throw new IllegalStateException("У пользователя нет вещей для генерации образов");
     }
 
+    // Группируем вещи по категориям
+    Map<ClothingCategory, List<ClothCard>> cardsByCategory = allCards.stream()
+        .collect(Collectors.groupingBy(ClothCard::getCategory));
+
+    // ОБЯЗАТЕЛЬНЫЕ категории для любого образа
+    List<ClothingCategory> mandatoryCategories = Arrays.asList(
+        ClothingCategory.TOP_BASE,  // Верх (футболка, рубашка и т.д.)
+        ClothingCategory.BOTTOM      // Низ (брюки, юбка, шорты и т.д.)
+    );
+
+    // Проверяем наличие обязательных категорий
+    List<String> missingMandatory = new ArrayList<>();
+    for (ClothingCategory cat : mandatoryCategories) {
+        List<ClothCard> cards = cardsByCategory.get(cat);
+        if (cards == null || cards.isEmpty()) {
+            missingMandatory.add(getCategoryDisplayName(cat));
+        }
+    }
+
+    if (!missingMandatory.isEmpty()) {
+        throw new IllegalStateException(
+            "Для создания образа необходимы: " + String.join(" и ", missingMandatory) +
+            ". Добавьте недостающие вещи в гардероб."
+        );
+    }
+
+    // Определяем количество образов на основе разнообразия гардероба
+    int maxOutfits = calculateMaxOutfits(allCards, cardsByCategory);
+    int outfitsToGenerate = Math.min(Math.max(1, count), maxOutfits);
+    
+    log.info("Генерация {} образов из {} возможных (всего вещей: {})", 
+             outfitsToGenerate, maxOutfits, allCards.size());
+
+    List<Outfit> outfits = new ArrayList<>();
+
+    // Получаем погоду
+    CurrentWeatherDto weather = null;
+    try {
+        weather = weatherService.getCurrentWeather("Moscow");
+    } catch (Exception e) {
+        log.warn("Не удалось получить погоду, используем значения по умолчанию", e);
+    }
+
+    double temp = weather != null ? weather.getCurrent().getTemp_c() : 15.0;
+    String condition = weather != null ? weather.getCurrent().getCondition().getText() : "Ясно";
+
+    // Генерируем образы
+    Set<Set<Long>> usedCombinations = new HashSet<>();
+    
+    for (int i = 1; i <= outfitsToGenerate; i++) {
+        try {
+            Outfit outfit = generateSingleOutfit(
+                user, allCards, cardsByCategory, style, temp, condition, i, usedCombinations
+            );
+            
+            if (outfit.getItems().size() >= 2) {  // Минимум верх и низ
+                outfitRepository.save(outfit);
+                outfits.add(outfit);
+                usedCombinations.add(
+                    outfit.getItems().stream()
+                        .map(ClothCard::getId)
+                        .collect(Collectors.toSet())
+                );
+                log.info("Сгенерирован образ #{}: {} предметов", i, outfit.getItems().size());
+            } else {
+                log.warn("Образ #{} не соответствует минимальным требованиям", i);
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось сгенерировать образ #{}: {}", i, e.getMessage());
+        }
+    }
+
+    if (outfits.isEmpty()) {
+        throw new IllegalStateException(
+            "Не удалось сгенерировать ни одного образа. Попробуйте добавить больше вещей в гардероб."
+        );
+    }
+
+    return outfits;
+    }
+
+    private int calculateMaxOutfits(List<ClothCard> allCards, Map<ClothingCategory, List<ClothCard>> cardsByCategory) {
+    int topBaseCount = cardsByCategory.getOrDefault(ClothingCategory.TOP_BASE, Collections.emptyList()).size();
+    int bottomCount = cardsByCategory.getOrDefault(ClothingCategory.BOTTOM, Collections.emptyList()).size();
+    
+    // Максимальное количество уникальных комбинаций верх + низ
+    int maxCombinations = topBaseCount * bottomCount;
+    
+    int totalCards = allCards.size();
+    
+    if (totalCards <= 5) return Math.min(1, maxCombinations);
+    if (totalCards <= 10) return Math.min(2, maxCombinations);
+    if (totalCards <= 20) return Math.min(3, maxCombinations);
+    return Math.min(4, maxCombinations);
+}
+
     private Outfit generateSingleOutfit(
-            User user,
-            List<ClothCard> allCards,
-            OutfitStyle style,
-            double temp,
-            String condition,
-            int index
-    ) {
-        List<ClothCard> selected = new ArrayList<>();
-        Set<Long> usedCardIds = new HashSet<>();
+        User user,
+        List<ClothCard> allCards,
+        Map<ClothingCategory, List<ClothCard>> cardsByCategory,
+        OutfitStyle style,
+        double temp,
+        String condition,
+        int index,
+        Set<Set<Long>> usedCombinations
+) {
+    List<ClothCard> selected = new ArrayList<>();
+    Set<Long> usedCardIds = new HashSet<>();
 
-        ClothingCategory[] required = getRequiredCategories(style, temp);
+    // 1. ОБЯЗАТЕЛЬНО выбираем TOP_BASE (верх)
+    List<ClothCard> topBaseCandidates = cardsByCategory.getOrDefault(
+        ClothingCategory.TOP_BASE, Collections.emptyList()
+    ).stream()
+        .filter(c -> matchesStyle(c, style))
+        .filter(c -> matchesWeather(c, temp))
+        .collect(Collectors.toList());
 
-        for (ClothingCategory cat : required) {
-            List<ClothCard> candidates = allCards.stream()
-                .filter(c -> c.getCategory() == cat)
+    if (topBaseCandidates.isEmpty()) {
+        // Если нет подходящих по стилю, берем любые
+        topBaseCandidates = cardsByCategory.getOrDefault(
+            ClothingCategory.TOP_BASE, Collections.emptyList()
+        );
+    }
+
+    if (!topBaseCandidates.isEmpty()) {
+        ClothCard top = topBaseCandidates.get(new Random().nextInt(topBaseCandidates.size()));
+        selected.add(top);
+        usedCardIds.add(top.getId());
+    }
+
+    // 2. ОБЯЗАТЕЛЬНО выбираем BOTTOM (низ)
+    List<ClothCard> bottomCandidates = cardsByCategory.getOrDefault(
+        ClothingCategory.BOTTOM, Collections.emptyList()
+    ).stream()
+        .filter(c -> !usedCardIds.contains(c.getId()))
+        .filter(c -> matchesStyle(c, style))
+        .filter(c -> matchesWeather(c, temp))
+        .collect(Collectors.toList());
+
+    if (bottomCandidates.isEmpty()) {
+        bottomCandidates = cardsByCategory.getOrDefault(
+            ClothingCategory.BOTTOM, Collections.emptyList()
+        ).stream()
+            .filter(c -> !usedCardIds.contains(c.getId()))
+            .collect(Collectors.toList());
+    }
+
+    if (!bottomCandidates.isEmpty()) {
+        ClothCard bottom = bottomCandidates.get(new Random().nextInt(bottomCandidates.size()));
+        selected.add(bottom);
+        usedCardIds.add(bottom.getId());
+    }
+
+    // 3. ОПЦИОНАЛЬНО добавляем SHOES (обувь)
+    List<ClothCard> shoesCandidates = cardsByCategory.getOrDefault(
+        ClothingCategory.SHOES, Collections.emptyList()
+    ).stream()
+        .filter(c -> !usedCardIds.contains(c.getId()))
+        .filter(c -> matchesStyle(c, style))
+        .filter(c -> matchesWeather(c, temp))
+        .collect(Collectors.toList());
+
+    if (!shoesCandidates.isEmpty()) {
+        ClothCard shoes = shoesCandidates.get(new Random().nextInt(shoesCandidates.size()));
+        selected.add(shoes);
+        usedCardIds.add(shoes.getId());
+    }
+
+    // 4. ОПЦИОНАЛЬНО добавляем верхний слой в зависимости от погоды
+    if (temp <= 15) {
+        List<ClothCard> outerCandidates = new ArrayList<>();
+        
+        // Сначала пробуем TOP_MID (средний слой)
+        List<ClothCard> midCandidates = cardsByCategory.getOrDefault(
+            ClothingCategory.TOP_MID, Collections.emptyList()
+        ).stream()
+            .filter(c -> !usedCardIds.contains(c.getId()))
+            .filter(c -> matchesStyle(c, style))
+            .filter(c -> matchesWeather(c, temp))
+            .collect(Collectors.toList());
+        
+        outerCandidates.addAll(midCandidates);
+        
+        // Если холодно, добавляем TOP_OUTER (верхняя одежда)
+        if (temp <= 10) {
+            List<ClothCard> outerLayerCandidates = cardsByCategory.getOrDefault(
+                ClothingCategory.TOP_OUTER, Collections.emptyList()
+            ).stream()
                 .filter(c -> !usedCardIds.contains(c.getId()))
                 .filter(c -> matchesStyle(c, style))
                 .filter(c -> matchesWeather(c, temp))
                 .collect(Collectors.toList());
-
-            if (!candidates.isEmpty()) {
-                ClothCard chosen = candidates.get(new Random().nextInt(candidates.size()));
-                selected.add(chosen);
-                usedCardIds.add(chosen.getId());
-            } else {
-                log.warn("Не найдена подходящая вещь для категории: {}", cat);
-            }
+            
+            outerCandidates.addAll(outerLayerCandidates);
         }
-
-        if (selected.size() < 3) {
-            log.warn("Недостаточно вещей для полного образа, собрано только: {}", selected.size());
-            for (ClothCard card : allCards) {
-                if (!usedCardIds.contains(card.getId()) && selected.size() < 5) {
-                    selected.add(card);
-                    usedCardIds.add(card.getId());
-                }
-            }
+        
+        if (!outerCandidates.isEmpty()) {
+            ClothCard outer = outerCandidates.get(new Random().nextInt(outerCandidates.size()));
+            selected.add(outer);
+            usedCardIds.add(outer.getId());
         }
-
-        return Outfit.builder()
-            .user(user)
-            .style(style)
-            .outfitName(style.name() + " образ #" + index)
-            .temperatureC(temp)
-            .weatherCondition(condition)
-            .items(selected)
-            .build();
     }
 
-    private ClothingCategory[] getRequiredCategories(OutfitStyle style, double temp) {
+    // 5. ОПЦИОНАЛЬНО добавляем HEAD (головной убор) если холодно
+    if (temp <= 5) {
+        List<ClothCard> headCandidates = cardsByCategory.getOrDefault(
+            ClothingCategory.HEAD, Collections.emptyList()
+        ).stream()
+            .filter(c -> !usedCardIds.contains(c.getId()))
+            .filter(c -> matchesStyle(c, style))
+            .collect(Collectors.toList());
+        
+        if (!headCandidates.isEmpty()) {
+            ClothCard head = headCandidates.get(new Random().nextInt(headCandidates.size()));
+            selected.add(head);
+            usedCardIds.add(head.getId());
+        }
+    }
+
+    // 6. ОПЦИОНАЛЬНО добавляем ACCESSORY (аксессуары)
+    List<ClothCard> accessoryCandidates = cardsByCategory.getOrDefault(
+        ClothingCategory.ACCESSORY, Collections.emptyList()
+    ).stream()
+        .filter(c -> !usedCardIds.contains(c.getId()))
+        .filter(c -> matchesStyle(c, style))
+        .collect(Collectors.toList());
+    
+    if (!accessoryCandidates.isEmpty() && new Random().nextBoolean()) {  // 50% шанс
+        ClothCard accessory = accessoryCandidates.get(new Random().nextInt(accessoryCandidates.size()));
+        selected.add(accessory);
+        usedCardIds.add(accessory.getId());
+    }
+
+    return Outfit.builder()
+        .user(user)
+        .style(style)
+        .outfitName(style.name() + " образ #" + index)
+        .temperatureC(temp)
+        .weatherCondition(condition)
+        .items(selected)
+        .isLiked(false)
+        .createdAt(java.time.LocalDateTime.now())
+        .build();
+}
+
+    private List<ClothingCategory> getRequiredCategoriesList(OutfitStyle style, double temp) {
         List<ClothingCategory> required = new ArrayList<>();
 
-        required.add(ClothingCategory.TOP_BASE);   
-        required.add(ClothingCategory.BOTTOM);     
-        required.add(ClothingCategory.SHOES);      
+        // Базовые категории для любого образа
+        required.add(ClothingCategory.TOP_BASE);
+        required.add(ClothingCategory.BOTTOM);
+        required.add(ClothingCategory.SHOES);
 
+        // Дополнительные категории в зависимости от стиля и температуры
         if (temp <= 15 || style == OutfitStyle.BUSINESS_CASUAL || style == OutfitStyle.OFFICE_FORMAL) {
             required.add(ClothingCategory.TOP_MID);
         }
@@ -246,13 +423,15 @@ public class ClothCardService {
         if (style == OutfitStyle.ELEGANT || style == OutfitStyle.BUSINESS_CASUAL) {
             required.add(ClothingCategory.ACCESSORY);
         }
+
+        // Убираем теплые слои при жаре
         if (temp > 25) {
             required.remove(ClothingCategory.TOP_MID);
             required.remove(ClothingCategory.TOP_OUTER);
             required.remove(ClothingCategory.HEAD);
         }
 
-        return required.toArray(new ClothingCategory[0]);
+        return required;
     }
 
     private boolean matchesStyle(ClothCard card, OutfitStyle outfitStyle) {
@@ -273,6 +452,30 @@ public class ClothCardService {
             
             default -> true;
         };
+    }
+
+    // Новые методы для системы лайков
+    @Transactional
+    public Outfit toggleLikeOutfit(Long outfitId, Long userId) {
+        Outfit outfit = outfitRepository.findById(outfitId)
+            .orElseThrow(() -> new RuntimeException("Образ не найден"));
+        
+        // Проверяем, что образ принадлежит пользователю
+        if (!outfit.getUser().getId().equals(userId)) {
+            throw new RuntimeException("Вы можете лайкать только свои образы");
+        }
+        
+        outfit.setIsLiked(!outfit.getIsLiked());
+        return outfitRepository.save(outfit);
+    }
+
+    public List<Outfit> getLikedOutfits(Long userId) {
+        // Нужно добавить метод в репозиторий
+        return outfitRepository.findByUserIdAndIsLikedTrue(userId);
+    }
+
+    public List<Outfit> getUserOutfits(Long userId) {
+        return outfitRepository.findByUserId(userId);
     }
 
     private boolean matchesWeather(ClothCard card, double temp) {
@@ -303,4 +506,16 @@ public class ClothCardService {
 
         return tempMatch;
     }
+
+    private String getCategoryDisplayName(ClothingCategory category) {
+    return switch (category) {
+        case TOP_BASE -> "Верх (футболка/рубашка)";
+        case TOP_MID -> "Средний слой (свитер/кофта)";
+        case TOP_OUTER -> "Верхняя одежда (куртка/пальто)";
+        case BOTTOM -> "Низ (брюки/юбка/шорты)";
+        case SHOES -> "Обувь";
+        case HEAD -> "Головной убор";
+        case ACCESSORY -> "Аксессуары";
+    };
+}
 }

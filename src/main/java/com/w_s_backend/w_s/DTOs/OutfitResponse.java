@@ -1,5 +1,6 @@
 package com.w_s_backend.w_s.DTOs;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import com.w_s_backend.w_s.models.ClothingCategory;
@@ -14,6 +15,8 @@ public class OutfitResponse {
     private OutfitStyle style;
     private double temperatureC;
     private String weatherCondition;
+    private Boolean isLiked;
+    private LocalDateTime createdAt;
     private List<ClothCardShortDto> items;
 
     @Data

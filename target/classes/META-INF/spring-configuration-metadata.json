@@ -1,0 +1,14 @@
+{
+  "groups": [],
+  "properties": [
+    {
+      "name": "file.upload-dir",
+      "type": "java.lang.String",
+      "description": "A description for 'file.upload-dir'"
+    }
+  ],
+  "hints": [],
+  "ignored": {
+    "properties": []
+  }
+}
