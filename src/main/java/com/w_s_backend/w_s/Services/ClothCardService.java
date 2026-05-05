@@ -27,6 +27,7 @@ import com.w_s_backend.w_s.Repositories.OutfitRepository;
 import com.w_s_backend.w_s.models.ClothCard;
 import com.w_s_backend.w_s.models.ClothStyle;
 import com.w_s_backend.w_s.models.ClothingCategory;
+import com.w_s_backend.w_s.models.ColorScheme;
 import com.w_s_backend.w_s.models.Outfit;
 import com.w_s_backend.w_s.models.OutfitStyle;
 import com.w_s_backend.w_s.models.User;
@@ -42,6 +43,7 @@ public class ClothCardService {
     private final ClothCardPepository _clothCardPepository;
     private final UserService _userService;
     private final OutfitRepository outfitRepository;
+    private final ColorMatchingService colorMatchingService;
     private final WeatherService weatherService;
 
     private final String UPLOAD_DIR = "uploads/images/";
@@ -147,7 +149,7 @@ public class ClothCardService {
     }
 
     @Transactional
-    public List<Outfit> generateAndSaveOutfits(Long userId, OutfitStyle style, int count, String customName) {
+    public List<Outfit> generateAndSaveOutfits(Long userId, OutfitStyle style, int count, String customName, ColorScheme colorScheme) {
     User user = _userService.findById(userId);
     List<ClothCard> allCards = _clothCardPepository.findByUserId(userId);
 
@@ -194,7 +196,7 @@ public class ClothCardService {
 
     // Генерируем ВСЕ возможные комбинации
     List<Outfit> allPossibleOutfits = generateAllPossibleOutfits(
-        user, cardsByCategory, style, temp, condition
+        user, cardsByCategory, style, temp, condition, colorScheme
     );
 
     if (allPossibleOutfits.isEmpty()) {
@@ -309,7 +311,8 @@ public void deleteOutfit(Long outfitId, Long userId) {
     Map<ClothingCategory, List<ClothCard>> cardsByCategory,
     OutfitStyle style,
     double temp,
-    String condition
+    String condition, 
+    ColorScheme colorScheme
     ) {
         List<Outfit> allOutfits = new ArrayList<>();
         Set<String> usedCombinations = new HashSet<>(); // Строковый ключ для проверки уникальности
@@ -320,11 +323,17 @@ public void deleteOutfit(Long outfitId, Long userId) {
         
         // Если нет подходящих по стилю/погоде, берем все доступные
         if (topBaseCards.isEmpty()) {
-            topBaseCards = cardsByCategory.getOrDefault(ClothingCategory.TOP_BASE, Collections.emptyList());
-        }
-        if (bottomCards.isEmpty()) {
-            bottomCards = cardsByCategory.getOrDefault(ClothingCategory.BOTTOM, Collections.emptyList());
-        }
+        throw new IllegalStateException(
+            "Нет вещей стиля '" + getStyleDisplayName(style) + 
+            "' в категории 'Верх'. Добавьте подходящие вещи или выберите другой стиль."
+        );
+    }
+    if (bottomCards.isEmpty()) {
+        throw new IllegalStateException(
+            "Нет вещей стиля '" + getStyleDisplayName(style) + 
+            "' в категории 'Низ'. Добавьте подходящие вещи или выберите другой стиль."
+        );
+    }   
 
         // Опциональные категории
         List<ClothCard> shoesCards = filterCards(cardsByCategory, ClothingCategory.SHOES, style, temp);
@@ -338,6 +347,12 @@ public void deleteOutfit(Long outfitId, Long userId) {
             for (ClothCard bottom : bottomCards) {
                 if (top.getId().equals(bottom.getId())) continue; // Пропускаем одинаковые вещи
                 
+                 List<String> baseColors = new ArrayList<>();
+                baseColors.add(top.getColor());
+                
+                if (!colorMatchingService.matchesColorScheme(bottom.getColor(), baseColors, colorScheme)) {
+                    continue; // Пропускаем если цвета не сочетаются
+                }   
                 // Базовый набор (верх + низ)
                 List<ClothCard> baseItems = new ArrayList<>();
                 baseItems.add(top);

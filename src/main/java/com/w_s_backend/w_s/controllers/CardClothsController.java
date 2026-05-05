@@ -34,6 +34,7 @@ import com.w_s_backend.w_s.DTOs.OutfitResponse;
 import com.w_s_backend.w_s.Services.ClothCardService;
 import com.w_s_backend.w_s.Services.JwtService;
 import com.w_s_backend.w_s.models.ClothCard;
+import com.w_s_backend.w_s.models.ColorScheme;
 import com.w_s_backend.w_s.models.Outfit;
 import com.w_s_backend.w_s.models.User;
 
@@ -91,11 +92,16 @@ public ResponseEntity<?> generateOutfits(
     log.info("Запрос на генерацию образов для userId: {}", userId);
     
     try {
+        ColorScheme colorScheme = request.getColorScheme() != null 
+            ? request.getColorScheme() 
+            : ColorScheme.ANY;
+            
         List<Outfit> outfits = clothCardService.generateAndSaveOutfits(
             userId,
             request.getStyle(),
             request.getCount(),
-            request.getOutfitName()  // ДОБАВЛЕНО
+            request.getOutfitName(),
+            colorScheme  // ДОБАВЛЕНО
         );
         
         List<OutfitResponse> responses = outfits.stream()
