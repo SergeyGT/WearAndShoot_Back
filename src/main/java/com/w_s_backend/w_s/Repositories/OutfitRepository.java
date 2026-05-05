@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import com.w_s_backend.w_s.models.ClothCard;
 import com.w_s_backend.w_s.models.Outfit;
 
 @Repository
@@ -14,4 +15,6 @@ public interface OutfitRepository extends JpaRepository<Outfit, Long>{
     List<Outfit> findByUserIdAndIsLikedTrue(Long userId);
     
     List<Outfit> findByUserIdOrderByCreatedAtDesc(Long userId);
+
+    List<Outfit> findAllByItemsContaining(ClothCard clothCard);
 }

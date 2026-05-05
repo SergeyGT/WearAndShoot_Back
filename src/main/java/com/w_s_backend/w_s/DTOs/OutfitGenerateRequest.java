@@ -9,4 +9,5 @@ public class OutfitGenerateRequest {
     private Long userId;   
     private OutfitStyle style;
     private int count = 3;
+    private String outfitName;
 }

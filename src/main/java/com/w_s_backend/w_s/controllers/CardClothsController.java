@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -93,7 +94,8 @@ public ResponseEntity<?> generateOutfits(
         List<Outfit> outfits = clothCardService.generateAndSaveOutfits(
             userId,
             request.getStyle(),
-            request.getCount()
+            request.getCount(),
+            request.getOutfitName()  // ДОБАВЛЕНО
         );
         
         List<OutfitResponse> responses = outfits.stream()
@@ -211,6 +213,57 @@ private Long extractUserIdFromRequest(HttpServletRequest request) {
         return ResponseEntity.notFound().build();
     }
     
+    @DeleteMapping("/delete/{cardId}")
+    public ResponseEntity<?> deleteCard(
+            @PathVariable Long cardId,
+            HttpServletRequest httpRequest) {
+        
+        Long userId = extractUserIdFromRequest(httpRequest);
+        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "Не авторизован"));
+        }
+        
+        try {
+            clothCardService.deleteCard(cardId, userId);
+            return ResponseEntity.ok(Map.of("message", "Вещь успешно удалена"));
+        } catch (RuntimeException e) {
+            log.warn("Ошибка удаления вещи: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Неожиданная ошибка при удалении вещи", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Внутренняя ошибка сервера"));
+        }
+    }
+
+    @DeleteMapping("/outfits/{outfitId}")
+    public ResponseEntity<?> deleteOutfit(
+            @PathVariable Long outfitId,
+            HttpServletRequest httpRequest) {
+        
+        Long userId = extractUserIdFromRequest(httpRequest);
+        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "Не авторизован"));
+        }
+        
+        try {
+            clothCardService.deleteOutfit(outfitId, userId);
+            return ResponseEntity.ok(Map.of("message", "Образ успешно удален"));
+        } catch (RuntimeException e) {
+            log.warn("Ошибка удаления образа: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Неожиданная ошибка при удалении образа", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Внутренняя ошибка сервера"));
+        }
+    }                       
     @PostMapping("/outfits/{outfitId}/like")
     public ResponseEntity<OutfitResponse> toggleLikeOutfit(
             @PathVariable Long outfitId,

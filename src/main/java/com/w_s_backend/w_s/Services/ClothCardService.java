@@ -147,7 +147,7 @@ public class ClothCardService {
     }
 
     @Transactional
-    public List<Outfit> generateAndSaveOutfits(Long userId, OutfitStyle style, int count) {
+    public List<Outfit> generateAndSaveOutfits(Long userId, OutfitStyle style, int count, String customName) {
     User user = _userService.findById(userId);
     List<ClothCard> allCards = _clothCardPepository.findByUserId(userId);
 
@@ -213,7 +213,18 @@ public class ClothCardService {
     List<Outfit> savedOutfits = new ArrayList<>();
     for (int i = 0; i < selectedOutfits.size(); i++) {
         Outfit outfit = selectedOutfits.get(i);
-        outfit.setOutfitName(style.name() + " образ #" + (i + 1));
+        
+        // ИСПРАВЛЕНО: Используем кастомное имя или генерируем по умолчанию
+        String outfitName;
+        if (customName != null && !customName.trim().isEmpty()) {
+            outfitName = selectedOutfits.size() > 1 
+                ? customName.trim() + " #" + (i + 1) 
+                : customName.trim();
+        } else {
+            outfitName = getStyleDisplayName(style) + " образ #" + (i + 1);
+        }
+        
+        outfit.setOutfitName(outfitName);
         outfit.setUser(user);
         outfit.setStyle(style);
         outfit.setTemperatureC(temp);
@@ -224,13 +235,73 @@ public class ClothCardService {
         outfitRepository.save(outfit);
         savedOutfits.add(outfit);
         
-        log.info("Сохранен образ #{}: {} предметов (IDs: {})", 
-                 i + 1, 
-                 outfit.getItems().size(),
-                 outfit.getItems().stream().map(ClothCard::getId).collect(Collectors.toList()));
+        log.info("Сохранен образ '{}': {} предметов", outfitName, outfit.getItems().size());
     }
 
     return savedOutfits;
+    }
+
+    // В конец класса ClothCardService добавляем:
+
+@Transactional
+public void deleteCard(Long cardId, Long userId) {
+    ClothCard card = _clothCardPepository.findById(cardId)
+        .orElseThrow(() -> new RuntimeException("Вещь не найдена"));
+    
+    // Проверяем, что вещь принадлежит пользователю
+    if (!card.getUser().getId().equals(userId)) {
+        throw new RuntimeException("Вы можете удалять только свои вещи");
+    }
+    
+    // Удаляем связи с образами
+    List<Outfit> outfitsWithCard = outfitRepository.findAllByItemsContaining(card);
+    for (Outfit outfit : outfitsWithCard) {
+        outfit.getItems().remove(card);
+        // Если в образе осталось меньше 2 вещей — удаляем образ целиком
+        if (outfit.getItems().size() < 2) {
+            outfitRepository.delete(outfit);
+        } else {
+            outfitRepository.save(outfit);
+        }
+    }
+    
+    // Удаляем файл изображения
+    if (card.getImagePath() != null && !card.getImagePath().isEmpty()) {
+        deleteImagePath(card.getImagePath());
+    }
+    
+    // Удаляем карточку
+    _clothCardPepository.delete(card);
+    
+    log.info("Удалена вещь ID: {} пользователя ID: {}", cardId, userId);
+}
+
+@Transactional
+public void deleteOutfit(Long outfitId, Long userId) {
+    Outfit outfit = outfitRepository.findById(outfitId)
+        .orElseThrow(() -> new RuntimeException("Образ не найден"));
+    
+    // Проверяем, что образ принадлежит пользователю
+    if (!outfit.getUser().getId().equals(userId)) {
+        throw new RuntimeException("Вы можете удалять только свои образы");
+    }
+    
+    outfitRepository.delete(outfit);
+    
+    log.info("Удален образ ID: {} пользователя ID: {}", outfitId, userId);
+}
+    private String getStyleDisplayName(OutfitStyle style) {
+        return switch (style) {
+            case BUSINESS_CASUAL -> "Деловой";
+            case SMART_CASUAL -> "Смарт-кэжуал";
+            case STREETWEAR -> "Стритвир";
+            case SPORTY -> "Спортивный";
+            case ELEGANT -> "Элегантный";
+            case CASUAL -> "Повседневный";
+            case WINTER_CASUAL -> "Зимний";
+            case SUMMER_VACATION -> "Летний отпуск";
+            case OFFICE_FORMAL -> "Офисный";
+        };
     }
 
     private List<Outfit> generateAllPossibleOutfits(
