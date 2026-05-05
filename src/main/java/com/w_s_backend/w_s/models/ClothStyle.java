@@ -1,7 +1,13 @@
 package com.w_s_backend.w_s.models;
 
 public enum ClothStyle {
-    BUSINESS,
+     BUSINESS,
+    SMART_CASUAL,
+    STREETWEAR,
+    SPORT,
+    ELEGANT,
     CASUAL,
-    SPORT      
+    WINTER_CASUAL,
+    SUMMER_VACATION,
+    OFFICE_FORMAL
 }
