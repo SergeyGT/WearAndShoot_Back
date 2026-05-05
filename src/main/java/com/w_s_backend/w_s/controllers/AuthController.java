@@ -6,15 +6,11 @@ import com.w_s_backend.w_s.models.User;
 
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.springframework.ui.Model;
-
 import com.w_s_backend.w_s.Services.JwtService;
 import com.w_s_backend.w_s.Services.UserService;
 import lombok.AllArgsConstructor;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.security.core.Authentication;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
